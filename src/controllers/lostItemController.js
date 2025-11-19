@@ -501,7 +501,19 @@ const deleteLostItem = async (req, res) => {
     if (!items || items.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Lost item not found",
+        message: "item not found",
+      });
+    }
+
+    const isdeleted = await db.query(
+      "SELECT deleted_at FROM lost_items WHERE id = ?",
+      [id]
+    );
+
+    if (isdeleted[0].deleted_at !== null) {
+      return res.status(404).json({
+        success: false,
+        message: "item not found",
       });
     }
 
@@ -511,7 +523,8 @@ const deleteLostItem = async (req, res) => {
     if (!isOwner && !isAdmin) {
       return res.status(403).json({
         success: false,
-        message: "Access denied",
+        message:
+          "Access denied, you do not have permission to perform this action",
       });
     }
 

@@ -549,10 +549,22 @@ exports.deleteFoundItem = async (req, res) => {
       [id]
     );
 
+    const isdeleted = await db.query(
+      "SELECT deleted_at FROM found_items WHERE id = ?",
+      [id]
+    );
+
+    if (isdeleted[0].deleted_at !== null) {
+      return res.status(404).json({
+        success: false,
+        message: "item not found",
+      });
+    }
+
     if (items.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Found item not found",
+        message: "item not found",
       });
     }
 
@@ -604,26 +616,28 @@ exports.deleteFoundItem = async (req, res) => {
  * @access  Private (admin/security only)
  */
 exports.reviewFoundItem = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array(),
+    });
+  }
+
+  const { id } = req.params;
+  const { status, rejection_reason } = req.body;
+
+  // Validate status
+  if (!["approved", "rejected"].includes(status)) {
+    return res.status(400).json({
+      success: false,
+      message: "Status must be 'approved' or 'rejected'",
+    });
+  }
+
+  let connection;
+  
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array(),
-      });
-    }
-
-    const { id } = req.params;
-    const { status, rejection_reason } = req.body;
-
-    // Validate status
-    if (!["approved", "rejected"].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Status must be 'approved' or 'rejected'",
-      });
-    }
-
     // Check if item exists
     const items = await db.query(
       "SELECT user_id FROM found_items WHERE id = ?",
@@ -640,57 +654,60 @@ exports.reviewFoundItem = async (req, res) => {
     const reporterId = items[0].user_id;
 
     // Start transaction
-    await db.beginTransaction();
+    connection = await db.beginTransaction();
 
-    try {
-      // Update item status
-      await db.query(
-        `UPDATE found_items 
-         SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [status, req.user.id, id]
-      );
+    // Update item status
+    await connection.query(
+      `UPDATE found_items 
+       SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP, 
+           rejection_reason = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [status, req.user.id, rejection_reason || null, id]
+    );
 
-      // Create notification for reporter
-      const notificationMessage =
-        status === "approved"
-          ? "Your found item report has been approved"
-          : `Your found item report was rejected. Reason: ${
-              rejection_reason || "Not specified"
-            }`;
+    // Create notification for reporter
+    const notificationType = status === "approved" ? "post_approved" : "post_rejected";
+    const notificationTitle = status === "approved" 
+      ? "Found Item Approved" 
+      : "Found Item Rejected";
+    
+    const notificationMessage =
+      status === "approved"
+        ? "Your found item report has been approved"
+        : `Your found item report was rejected. Reason: ${
+            rejection_reason || "Not specified"
+          }`;
 
-      await db.query(
-        `INSERT INTO notifications (user_id, type, message, related_item_id, related_item_type) 
-         VALUES (?, 'item_review', ?, ?, 'found')`,
-        [reporterId, notificationMessage, id]
-      );
+    await connection.query(
+      `INSERT INTO notifications (user_id, type, title, message, related_item_id, related_item_type) 
+       VALUES (?, ?, ?, ?, ?, 'found')`,
+      [reporterId, notificationType, notificationTitle, notificationMessage, id]
+    );
 
-      await db.commit();
+    await db.commit(connection);
 
-      // Log activity
-      await db.query(
-        `INSERT INTO activity_logs (user_id, action, description, ip_address, resource_type, resource_id, status) 
-         VALUES (?, 'review_found_item', ?, ?, 'found_item', ?, 'success')`,
-        [
-          req.user.id,
-          `Reviewed found item ID ${id}: ${status}${
-            rejection_reason ? ` - ${rejection_reason}` : ""
-          }`,
-          req.ip || req.connection?.remoteAddress || "0.0.0.0",
-          id,
-        ]
-      );
+    // Log activity
+    await db.query(
+      `INSERT INTO activity_logs (user_id, action, description, ip_address, resource_type, resource_id, status) 
+       VALUES (?, 'review_found_item', ?, ?, 'found_item', ?, 'success')`,
+      [
+        req.user.id,
+        `Reviewed found item ID ${id}: ${status}${
+          rejection_reason ? ` - ${rejection_reason}` : ""
+        }`,
+        req.ip || req.connection?.remoteAddress || "0.0.0.0",
+        id,
+      ]
+    );
 
-      res.json({
-        success: true,
-        message: `Found item ${status} successfully`,
-      });
-    } catch (error) {
-      await db.rollback();
-      throw error;
-    }
+    res.json({
+      success: true,
+      message: `Found item ${status} successfully`,
+    });
   } catch (error) {
-    await db.rollback();
+    if (connection) {
+      await db.rollback(connection);
+    }
     console.error("Review found item error:", error);
     res.status(500).json({
       success: false,
