@@ -636,7 +636,7 @@ exports.reviewFoundItem = async (req, res) => {
   }
 
   let connection;
-  
+
   try {
     // Check if item exists
     const items = await db.query(
@@ -666,11 +666,11 @@ exports.reviewFoundItem = async (req, res) => {
     );
 
     // Create notification for reporter
-    const notificationType = status === "approved" ? "post_approved" : "post_rejected";
-    const notificationTitle = status === "approved" 
-      ? "Found Item Approved" 
-      : "Found Item Rejected";
-    
+    const notificationType =
+      status === "approved" ? "post_approved" : "post_rejected";
+    const notificationTitle =
+      status === "approved" ? "Found Item Approved" : "Found Item Rejected";
+
     const notificationMessage =
       status === "approved"
         ? "Your found item report has been approved"
