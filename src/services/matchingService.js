@@ -161,15 +161,21 @@ async function findMatchesForLostItem(lostItemId) {
      FROM lost_items li
      LEFT JOIN categories c ON li.category_id = c.id
      LEFT JOIN locations l ON li.last_seen_location_id = l.id
-     WHERE li.id = ? AND li.status = 'approved'`,
+     WHERE li.id = ? AND li.deleted_at IS NULL`,
     [lostItemId]
   );
 
   if (lostItems.length === 0) {
-    throw new Error("Lost item not found or not approved");
+    throw new Error("Lost item not found");
   }
 
   const lostItem = lostItems[0];
+
+  if (lostItem.status !== "approved") {
+    throw new Error(
+      `Lost item status is '${lostItem.status}', must be 'approved' to find matches`
+    );
+  }
 
   // Get potential found items (same category, approved, not yet claimed)
   const foundItems = await db.query(
@@ -179,6 +185,7 @@ async function findMatchesForLostItem(lostItemId) {
      LEFT JOIN locations l ON fi.found_location_id = l.id
      WHERE fi.category_id = ?
        AND fi.status = 'approved'
+       AND fi.deleted_at IS NULL
        AND fi.id NOT IN (
          SELECT found_item_id FROM claims WHERE status = 'approved'
        )
@@ -229,15 +236,21 @@ async function findMatchesForFoundItem(foundItemId) {
      FROM found_items fi
      LEFT JOIN categories c ON fi.category_id = c.id
      LEFT JOIN locations l ON fi.found_location_id = l.id
-     WHERE fi.id = ? AND fi.status = 'approved'`,
+     WHERE fi.id = ? AND fi.deleted_at IS NULL`,
     [foundItemId]
   );
 
   if (foundItems.length === 0) {
-    throw new Error("Found item not found or not approved");
+    throw new Error("Found item not found");
   }
 
   const foundItem = foundItems[0];
+
+  if (foundItem.status !== "approved") {
+    throw new Error(
+      `Found item status is '${foundItem.status}', must be 'approved' to find matches`
+    );
+  }
 
   // Get potential lost items (same category, approved, not yet resolved)
   const lostItems = await db.query(
@@ -250,6 +263,7 @@ async function findMatchesForFoundItem(foundItemId) {
      LEFT JOIN users u ON li.user_id = u.id
      WHERE li.category_id = ?
        AND li.status = 'approved'
+       AND li.deleted_at IS NULL
        AND li.last_seen_date <= DATE_ADD(?, INTERVAL 7 DAY)
      ORDER BY li.last_seen_date DESC`,
     [foundItem.category_id, foundItem.found_date]

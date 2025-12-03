@@ -1,171 +1,163 @@
 /**
- * Test Helpers and Utilities
+ * Test Helpers
+ * Utility functions for test suite
  */
 
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
+const request = require("supertest");
+const app = require("../index");
 
-/**
- * Generate test user tokens
- */
-function generateToken(user) {
-  return jwt.sign(
-    {
-      id: user.id,
-      school_id: user.school_id,
-      role: user.role,
-      status: user.status,
-    },
-    process.env.JWT_SECRET,
-    {
-      expiresIn: "1h",
-      issuer: "lost-and-found-api",
-      audience: "lost-and-found-client",
-    }
-  );
-}
-
-/**
- * Create test users with different roles
- */
-const testUsers = {
-  admin: {
-    id: 999,
-    school_id: "ADMIN-2024",
-    email: "admin@test.com",
-    password: "Admin@123456",
-    role: "admin",
-    status: "active",
-  },
-  user1: {
-    id: 1000,
-    school_id: "23-1001",
-    email: "user1@test.com",
-    password: "User1@123456",
-    role: "user",
-    status: "active",
-  },
-  user2: {
-    id: 1001,
-    school_id: "23-1002",
-    email: "user2@test.com",
-    password: "User2@123456",
-    role: "user",
-    status: "active",
-  },
-  security: {
-    id: 1002,
-    school_id: "SEC-2024",
-    email: "security@test.com",
-    password: "Security@123456",
-    role: "security",
-    status: "active",
-  },
-  suspended: {
-    id: 1003,
-    school_id: "23-1003",
-    email: "suspended@test.com",
-    password: "Suspended@123456",
-    role: "user",
-    status: "suspended",
-  },
+// Generate unique identifiers
+const generateSchoolId = () => {
+  const year = Math.floor(Math.random() * 5) + 20; // 20-24
+  const num = Math.floor(Math.random() * 90000) + 10000; // 10000-99999
+  return `${year}-${num}`;
 };
 
-/**
- * Generate tokens for all test users
- */
-function generateTestTokens() {
-  return {
-    adminToken: generateToken(testUsers.admin),
-    user1Token: generateToken(testUsers.user1),
-    user2Token: generateToken(testUsers.user2),
-    securityToken: generateToken(testUsers.security),
-    suspendedToken: generateToken(testUsers.suspended),
+const generateEmail = (prefix = "test") => {
+  return `${prefix}_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}@test.com`;
+};
+
+// Create a test user and get token
+const createTestUser = async (overrides = {}) => {
+  const userData = {
+    school_id: generateSchoolId(),
+    email: generateEmail(),
+    password: "Test@123456",
+    first_name: "Test",
+    last_name: "User",
+    contact_number: "09123456789",
+    date_of_birth: "2000-01-15",
+    gender: "male",
+    address_line1: "123 Test Street",
+    city: "Manila",
+    province: "Metro Manila",
+    postal_code: "1000",
+    emergency_contact_name: "Emergency Contact",
+    emergency_contact_number: "09987654321",
+    department: "Computer Science",
+    year_level: "3rd Year",
+    ...overrides,
   };
-}
 
-/**
- * Hash password for test users
- */
-async function hashPassword(password) {
-  return await bcrypt.hash(password, 12);
-}
+  const response = await request(app).post("/api/auth/register").send(userData);
 
-/**
- * Test data generators
- */
-const testData = {
-  validLostItem: {
-    title: "Black iPhone 13 Pro",
-    description:
-      "Lost my black iPhone 13 Pro with a blue case. Has a cracked screen protector.",
-    category_id: 1,
-    last_seen_location_id: 3,
-    last_seen_date: "2025-10-20",
-    last_seen_time: "14:30",
-    unique_identifiers: "IMEI: 123456789012345",
-    reward_offered: 500,
-  },
-  validFoundItem: {
-    title: "Blue Backpack with Books",
-    description:
-      "Found a blue JanSport backpack containing textbooks and notebooks.",
-    category_id: 2,
-    found_location_id: 5,
-    found_date: "2025-10-21",
-    found_time: "09:15",
-    storage_location_id: 8,
-    storage_notes: "Security Office - Shelf A3",
-    turned_in_to_security: true,
-    unique_identifiers: "JanSport brand",
-  },
-  validCategory: {
-    name: `Test Category ${Date.now()}`,
-    description: "Test category description",
-    icon: "test-icon",
-  },
-  validLocation: {
-    name: `Test Location ${Date.now()}`,
-    building: "Test Building",
-    floor: "3F",
-    description: "Test location description",
-    is_storage: true,
-  },
+  return { userData, response };
 };
 
-/**
- * Common test assertions
- */
-const assertions = {
-  expectSuccessResponse: (response) => {
-    expect(response.body).toHaveProperty("success", true);
-  },
-  expectErrorResponse: (response, status = 400) => {
-    expect(response.status).toBe(status);
-    expect(response.body).toHaveProperty("success", false);
-    expect(response.body).toHaveProperty("message");
-  },
-  expectValidationError: (response) => {
-    expect(response.status).toBe(400);
-    expect(response.body).toHaveProperty("success", false);
-    expect(response.body).toHaveProperty("errors");
-    expect(Array.isArray(response.body.errors)).toBe(true);
-  },
-  expectAuthRequired: (response) => {
-    expect(response.status).toBe(401);
-    expect(response.body).toHaveProperty("success", false);
-  },
-  expectForbidden: (response) => {
-    expect(response.status).toBe(403);
-    expect(response.body).toHaveProperty("success", false);
-  },
+// Login and get token
+const loginUser = async (school_id, password) => {
+  const response = await request(app)
+    .post("/api/auth/login")
+    .send({ school_id, password });
+
+  return response;
 };
+
+// Create admin user (requires existing admin to approve)
+const activateUser = async (adminToken, userId) => {
+  const response = await request(app)
+    .post(`/api/auth/users/${userId}/manage`)
+    .set("Authorization", `Bearer ${adminToken}`)
+    .send({ action: "approve" });
+
+  return response;
+};
+
+// SQL Injection payloads
+const sqlInjectionPayloads = [
+  "' OR '1'='1",
+  "'; DROP TABLE users; --",
+  "1; SELECT * FROM users",
+  "' UNION SELECT * FROM users--",
+  "admin'--",
+  "1' OR '1'='1' /*",
+  "' OR 1=1--",
+  "' OR ''='",
+  "'; EXEC xp_cmdshell('dir'); --",
+  "1; WAITFOR DELAY '0:0:5'--",
+  "' AND 1=(SELECT COUNT(*) FROM users); --",
+  "'; INSERT INTO users VALUES('hacked'); --",
+];
+
+// XSS payloads
+const xssPayloads = [
+  '<script>alert("XSS")</script>',
+  '<img src=x onerror=alert("XSS")>',
+  '<svg onload=alert("XSS")>',
+  'javascript:alert("XSS")',
+  '<body onload=alert("XSS")>',
+  '"><script>alert("XSS")</script>',
+  "'-alert('XSS')-'",
+  "<iframe src=\"javascript:alert('XSS')\">",
+  "<div style=\"background:url(javascript:alert('XSS'))\">",
+  '{{constructor.constructor("alert(1)")()}}',
+];
+
+// NoSQL injection payloads
+const noSqlInjectionPayloads = [
+  '{"$gt": ""}',
+  '{"$ne": null}',
+  '{"$where": "sleep(5000)"}',
+  '{"$regex": ".*"}',
+  "{'$gt': ''}",
+];
+
+// Path traversal payloads
+const pathTraversalPayloads = [
+  "../../../etc/passwd",
+  "..\\..\\..\\windows\\system32\\config\\sam",
+  "....//....//....//etc/passwd",
+  "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+  "..%252f..%252f..%252fetc/passwd",
+];
+
+// Command injection payloads
+const commandInjectionPayloads = [
+  "; ls -la",
+  "| cat /etc/passwd",
+  "`whoami`",
+  "$(whoami)",
+  "; ping -c 10 127.0.0.1",
+  "& dir",
+  "| type C:\\Windows\\System32\\drivers\\etc\\hosts",
+];
+
+// Overflow payloads
+const overflowPayloads = {
+  longString: "A".repeat(10000),
+  veryLongString: "B".repeat(100000),
+  unicodeBomb: "\u202E".repeat(1000),
+  nullBytes: "\x00".repeat(100),
+  specialChars: "!@#$%^&*()_+-=[]{}|;:'\",.<>?/\\`~".repeat(100),
+};
+
+// Malicious file names
+const maliciousFileNames = [
+  "../../../etc/passwd",
+  "test.php",
+  "test.exe",
+  "test.js",
+  "<script>alert(1)</script>.jpg",
+  "test.jpg.php",
+  "....jpg",
+  "test\x00.jpg",
+];
 
 module.exports = {
-  testUsers,
-  generateToken,
-  generateTestTokens,
-  hashPassword,
-  testData,
-  assertions,
+  app,
+  request,
+  generateSchoolId,
+  generateEmail,
+  createTestUser,
+  loginUser,
+  activateUser,
+  sqlInjectionPayloads,
+  xssPayloads,
+  noSqlInjectionPayloads,
+  pathTraversalPayloads,
+  commandInjectionPayloads,
+  overflowPayloads,
+  maliciousFileNames,
 };

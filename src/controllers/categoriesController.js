@@ -13,12 +13,18 @@ const { validationResult } = require("express-validator");
  */
 exports.getCategories = async (req, res) => {
   try {
-    const { active_only = "true" } = req.query;
+    const { active_only } = req.query;
+
+    // Admin/security can see all categories, public users only see active
+    const isPrivileged =
+      req.user && ["admin", "security"].includes(req.user.role);
 
     let query = "SELECT * FROM categories";
     let params = [];
 
-    if (active_only === "true") {
+    // If not privileged, always show only active
+    // If privileged, respect active_only param (default to showing all)
+    if (!isPrivileged || active_only === "true") {
       query += " WHERE is_active = TRUE";
     }
 

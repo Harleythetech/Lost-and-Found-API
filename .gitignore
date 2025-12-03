@@ -1,5 +1,19 @@
+# DOCS
+API_DOCUMENTATION.md
+PASSWORD_RESET.md
+SEARCH_TESTING.md
+validation-error-examples.md
+API_ENDPOINTS.md
+
 # Environment variables
 .env
+
+# Firebase
+lost-and-found-v1ac-firebase-adminsdk-fbsvc-d786d3864d.json
+firebasekey
+generate-firebase-key.js
+FIREBASE_SETUP.md
+generate-firebase-token.js
 
 # Dependencies
 node_modules/
@@ -14,3 +28,12 @@ uploads/*
 # OS
 .DS_Store
 Thumbs.db
+
+# test files
+coverage/
+*.test.js
+*.spec.js
+setup.js
+helpers.js
+README.md
+.nyc_output/

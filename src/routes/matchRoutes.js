@@ -4,11 +4,26 @@
 
 const express = require("express");
 const router = express.Router();
-const { param, body } = require("express-validator");
+const { param, body, query } = require("express-validator");
 
 const matchingController = require("../controllers/matchingController");
 const { authenticate, authorize } = require("../middleware/auth");
 const { idParamValidation } = require("../utils/validators");
+
+// Validation for itemType parameter
+const itemTypeValidation = [
+  param("itemType")
+    .isIn(["lost", "found"])
+    .withMessage("Item type must be 'lost' or 'found'"),
+  param("itemId")
+    .isInt({ min: 1 })
+    .withMessage("Item ID must be a positive integer")
+    .toInt(),
+  query("status")
+    .optional()
+    .isIn(["suggested", "confirmed", "dismissed"])
+    .withMessage("Status must be 'suggested', 'confirmed', or 'dismissed'"),
+];
 
 /**
  * @route   GET /api/matches/lost/:id
@@ -77,12 +92,7 @@ router.post(
 router.get(
   "/saved/:itemType/:itemId",
   authenticate,
-  [
-    param("itemId")
-      .isInt({ min: 1 })
-      .withMessage("Item ID must be a positive integer")
-      .toInt(),
-  ],
+  itemTypeValidation,
   matchingController.getSavedMatches
 );
 

@@ -13,13 +13,16 @@
     "test:items": "jest tests/lostItems.test.js tests/foundItems.test.js --verbose",
     "test:matching": "jest tests/matching.test.js --verbose",
     "test:integration": "jest tests/integration.test.js --verbose",
-    "test:security": "jest tests/security.test.js --verbose"
+    "test:security": "jest tests/security.test.js --verbose",
+    "firebase:token": "node generate-firebase-token.js",
+    "firebase:test": "node test-firebase.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
@@ -33,6 +36,7 @@
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
     "jsonwebtoken": "^9.0.2",
+    "mailersend": "^2.6.0",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "mysql2": "^3.15.2",

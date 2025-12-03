@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+const path = require("path");
 const logger = require("./src/utils/logger");
 const { initializePool, closePool } = require("./src/config/database");
 const { applySecurityMiddleware } = require("./src/middleware/security");
@@ -10,6 +11,11 @@ const app = express();
 // SECURITY MIDDLEWARE (MUST BE FIRST!)
 // ============================================
 applySecurityMiddleware(app);
+
+// ============================================
+// STATIC FILE SERVING (Uploads)
+// ============================================
+app.use("/api/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ============================================
 // BODY PARSING MIDDLEWARE
@@ -28,7 +34,7 @@ if (process.env.NODE_ENV === "development") {
 }
 
 // ============================================
-// HEALTH CHECK ENDPOINT
+// BASIC HEALTH CHECK (Public)
 // ============================================
 app.get("/health", (req, res) => {
   res.json({
@@ -48,6 +54,13 @@ const foundItemRoutes = require("./src/routes/foundItemRoutes");
 const categoryRoutes = require("./src/routes/categoryRoutes");
 const locationRoutes = require("./src/routes/locationRoutes");
 const matchRoutes = require("./src/routes/matchRoutes");
+const searchRoutes = require("./src/routes/searchRoutes");
+const healthRoutes = require("./src/routes/healthRoutes");
+const claimsRoutes = require("./src/routes/claimsRoutes");
+const notificationsRoutes = require("./src/routes/notificationsRoutes");
+const dashboardRoutes = require("./src/routes/dashboardRoutes");
+const adminRoutes = require("./src/routes/adminRoutes");
+const landingRoutes = require("./src/routes/landingRoutes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/lost-items", lostItemRoutes);
@@ -55,6 +68,13 @@ app.use("/api/found-items", foundItemRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/locations", locationRoutes);
 app.use("/api/matches", matchRoutes);
+app.use("/api/search", searchRoutes);
+app.use("/api/health", healthRoutes);
+app.use("/api/claims", claimsRoutes);
+app.use("/api/notifications", notificationsRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/landing", landingRoutes);
 
 // ============================================
 // 404 HANDLER

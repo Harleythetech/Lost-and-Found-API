@@ -4,18 +4,31 @@
 
 const express = require("express");
 const router = express.Router();
+const { query } = require("express-validator");
 
 const locationsController = require("../controllers/locationsController");
 const { authenticate, authorize } = require("../middleware/auth");
 const { locationValidation } = require("../utils/referenceValidators");
 const { idParamValidation } = require("../utils/validators");
 
+// Query validation for GET locations
+const getLocationsValidation = [
+  query("active_only")
+    .optional()
+    .isIn(["true", "false"])
+    .withMessage("active_only must be true or false"),
+  query("storage_only")
+    .optional()
+    .isIn(["true", "false"])
+    .withMessage("storage_only must be true or false"),
+];
+
 /**
  * @route   GET /api/locations
  * @desc    Get all locations
  * @access  Public
  */
-router.get("/", locationsController.getLocations);
+router.get("/", getLocationsValidation, locationsController.getLocations);
 
 /**
  * @route   GET /api/locations/:id

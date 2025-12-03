@@ -14,7 +14,25 @@
 const { validationResult } = require("express-validator");
 const db = require("../config/database");
 const logger = require("../utils/logger");
-const { processImage, deleteFile, getFileUrl } = require("../utils/fileUpload");
+const {
+  processImage,
+  deleteFile,
+  deleteItemDirectory,
+  getFileUrl,
+  moveToItemDirectory,
+} = require("../utils/fileUpload");
+
+/**
+ * Sanitize string for SQL LIKE queries
+ * Escapes special characters: %, _, and \
+ */
+const sanitizeForLike = (str) => {
+  if (!str) return str;
+  return str
+    .replace(/\\/g, "\\\\") // Escape backslashes first
+    .replace(/%/g, "\\%") // Escape percent
+    .replace(/_/g, "\\_"); // Escape underscore
+};
 
 /**
  * Create Lost Item Report
@@ -23,6 +41,7 @@ const { processImage, deleteFile, getFileUrl } = require("../utils/fileUpload");
  */
 const createLostItem = async (req, res) => {
   let connection;
+  let itemId = null;
   const uploadedFiles = [];
 
   try {
@@ -46,17 +65,18 @@ const createLostItem = async (req, res) => {
       reward_offered,
       contact_via_email,
       contact_via_phone,
+      email,
+      phone_number,
     } = req.body;
 
     connection = await db.beginTransaction();
 
-    // Insert lost item
     const result = await connection.execute(
       `INSERT INTO lost_items (
         user_id, title, description, category_id, last_seen_location_id,
         last_seen_date, last_seen_time, unique_identifiers, reward_offered,
-        contact_via_email, contact_via_phone, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+        contact_via_email, contact_via_phone, email, phone_number, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         req.user.id,
         title,
@@ -69,21 +89,26 @@ const createLostItem = async (req, res) => {
         reward_offered || 0,
         contact_via_email !== false,
         contact_via_phone || false,
+        email || null,
+        phone_number || null,
       ]
     );
 
-    const itemId = result[0].insertId;
+    itemId = result[0].insertId;
 
-    // Process uploaded images
+    // Process uploaded images - move to item-specific folder
     if (req.files && req.files.length > 0) {
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
         uploadedFiles.push(file.path);
 
-        // Process image (resize if needed)
+        // Process image (resize if needed) while still in temp
         const imageData = await processImage(file.path);
 
-        // Save to database
+        // Move file to item-specific directory: uploads/lost-items/{itemId}/
+        const newPath = moveToItemDirectory(file.path, "lost", itemId);
+
+        // Save to database with new path
         await connection.execute(
           `INSERT INTO item_images (
             item_type, item_id, file_name, file_path, file_size,
@@ -92,7 +117,7 @@ const createLostItem = async (req, res) => {
           [
             itemId,
             file.filename,
-            file.path,
+            newPath,
             imageData.size,
             file.mimetype,
             imageData.width,
@@ -102,6 +127,9 @@ const createLostItem = async (req, res) => {
             req.ip || req.connection?.remoteAddress || "0.0.0.0",
           ]
         );
+
+        // Update uploadedFiles with new path for cleanup on error
+        uploadedFiles[i] = newPath;
       }
     }
 
@@ -141,6 +169,11 @@ const createLostItem = async (req, res) => {
 
     // Delete uploaded files on error
     uploadedFiles.forEach((filePath) => deleteFile(filePath));
+
+    // Also try to delete the item directory if it was created
+    if (itemId) {
+      deleteItemDirectory("lost", itemId);
+    }
 
     logger.error("Create lost item error:", error);
     res.status(500).json({
@@ -193,7 +226,8 @@ const getLostItems = async (req, res) => {
       whereConditions.push(
         "(li.title LIKE ? OR li.description LIKE ? OR li.unique_identifiers LIKE ?)"
       );
-      const searchTerm = `%${search}%`;
+      const sanitizedSearch = sanitizeForLike(search);
+      const searchTerm = `%${sanitizedSearch}%`;
       params.push(searchTerm, searchTerm, searchTerm);
     }
 
@@ -415,6 +449,8 @@ const updateLostItem = async (req, res) => {
       reward_offered,
       contact_via_email,
       contact_via_phone,
+      email,
+      phone_number,
     } = req.body;
 
     connection = await db.beginTransaction();
@@ -426,6 +462,7 @@ const updateLostItem = async (req, res) => {
         last_seen_location_id = ?, last_seen_date = ?, last_seen_time = ?,
         unique_identifiers = ?, reward_offered = ?,
         contact_via_email = ?, contact_via_phone = ?,
+        email = ?, \`phone_number\` = ?,
         status = 'pending', reviewed_by = NULL, reviewed_at = NULL
       WHERE id = ?`,
       [
@@ -439,6 +476,8 @@ const updateLostItem = async (req, res) => {
         reward_offered || 0,
         contact_via_email !== false,
         contact_via_phone || false,
+        email || null,
+        phone_number || null,
         id,
       ]
     );

@@ -4,18 +4,32 @@
 
 const express = require("express");
 const router = express.Router();
+const { query } = require("express-validator");
 
 const categoriesController = require("../controllers/categoriesController");
-const { authenticate, authorize } = require("../middleware/auth");
+const { authenticate, authorize, optionalAuth } = require("../middleware/auth");
 const { categoryValidation } = require("../utils/referenceValidators");
 const { idParamValidation } = require("../utils/validators");
+
+// Query validation for GET categories
+const getCategoriesValidation = [
+  query("active_only")
+    .optional()
+    .isIn(["true", "false"])
+    .withMessage("active_only must be true or false"),
+];
 
 /**
  * @route   GET /api/categories
  * @desc    Get all categories
- * @access  Public
+ * @access  Public (active only) / Admin (all categories)
  */
-router.get("/", categoriesController.getCategories);
+router.get(
+  "/",
+  optionalAuth,
+  getCategoriesValidation,
+  categoriesController.getCategories
+);
 
 /**
  * @route   GET /api/categories/:id

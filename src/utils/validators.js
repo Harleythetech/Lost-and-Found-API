@@ -14,16 +14,18 @@ const { body, param, query } = require("express-validator");
 
 /**
  * School ID Validation
- * Format: YY-XXXX (e.g., 23-1234, 24-5678)
- * - YY: 2-digit year
- * - XXXX: 4-digit student number
+ * Format: XX-XXXXX (e.g., 23-12345, 24-56789)
+ * - XX: 2-digit year
+ * - XXXXX: 5-digit student number
  */
 const schoolIdValidator = body("school_id")
   .trim()
-  .matches(/^\d{2}-\d{4}$/)
-  .withMessage("School ID must be in format YY-XXXX (e.g., 23-1234)")
-  .isLength({ min: 7, max: 7 })
-  .withMessage("School ID must be exactly 7 characters");
+  .notEmpty()
+  .withMessage("School ID is required")
+  .matches(/^\d{2}-\d{5}$/)
+  .withMessage("School ID must be in format XX-XXXXX (e.g., 23-12345)")
+  .isLength({ min: 8, max: 8 })
+  .withMessage("School ID must be exactly 8 characters");
 
 /**
  * Password Validation
@@ -43,11 +45,12 @@ const passwordValidator = body("password")
   );
 
 /**
- * Email Validation (Optional for Firebase auth)
+ * Email Validation (Required)
  */
 const emailValidator = body("email")
-  .optional({ checkFalsy: true })
   .trim()
+  .notEmpty()
+  .withMessage("Email is required")
   .isEmail()
   .withMessage("Must be a valid email address")
   .normalizeEmail()
@@ -87,17 +90,104 @@ const registerValidation = [
   emailValidator,
 
   body("contact_number")
-    .optional({ checkFalsy: true })
     .trim()
-    .matches(/^(\+63|0)?[0-9]{10}$/)
-    .withMessage("Contact number must be a valid Philippine phone number")
-    .isLength({ max: 20 }),
+    .notEmpty()
+    .withMessage("Contact number is required")
+    .matches(/^(09|\+639)[0-9]{9}$/)
+    .withMessage(
+      "Contact number must be a valid Philippine mobile number (09XXXXXXXXX or +639XXXXXXXXX)"
+    )
+    .isLength({ min: 11, max: 13 })
+    .withMessage("Contact number must be 11-13 characters"),
 
   passwordValidator,
 
   body("confirm_password")
     .custom((value, { req }) => value === req.body.password)
     .withMessage("Passwords do not match"),
+
+  // Required personal information fields
+  body("date_of_birth")
+    .notEmpty()
+    .withMessage("Date of birth is required")
+    .isISO8601()
+    .withMessage("Date of birth must be in YYYY-MM-DD format"),
+
+  body("gender")
+    .notEmpty()
+    .withMessage("Gender is required")
+    .isIn(["male", "female", "other", "prefer_not_to_say"])
+    .withMessage("Gender must be male, female, other, or prefer_not_to_say"),
+
+  body("address_line1")
+    .trim()
+    .notEmpty()
+    .withMessage("Address is required")
+    .isLength({ max: 255 })
+    .withMessage("Address line 1 must be less than 255 characters")
+    .escape(),
+
+  body("address_line2")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 255 })
+    .withMessage("Address line 2 must be less than 255 characters")
+    .escape(),
+
+  body("city")
+    .trim()
+    .notEmpty()
+    .withMessage("City is required")
+    .isLength({ max: 100 })
+    .withMessage("City must be less than 100 characters")
+    .escape(),
+
+  body("province")
+    .trim()
+    .notEmpty()
+    .withMessage("Province is required")
+    .isLength({ max: 100 })
+    .withMessage("Province must be less than 100 characters")
+    .escape(),
+
+  body("postal_code")
+    .trim()
+    .notEmpty()
+    .withMessage("Postal code is required")
+    .isLength({ max: 20 })
+    .withMessage("Postal code must be less than 20 characters")
+    .escape(),
+
+  body("emergency_contact_name")
+    .trim()
+    .notEmpty()
+    .withMessage("Emergency contact name is required")
+    .isLength({ max: 200 })
+    .withMessage("Emergency contact name must be less than 200 characters")
+    .escape(),
+
+  body("emergency_contact_number")
+    .trim()
+    .notEmpty()
+    .withMessage("Emergency contact number is required")
+    .matches(/^[0-9+\-()\s]{7,20}$/)
+    .withMessage("Invalid emergency contact number format"),
+
+  body("department")
+    .trim()
+    .notEmpty()
+    .withMessage("Department is required")
+    .isLength({ max: 100 })
+    .withMessage("Department must be less than 100 characters")
+    .escape(),
+
+  body("year_level")
+    .trim()
+    .notEmpty()
+    .withMessage("Year level is required")
+    .isLength({ max: 50 })
+    .withMessage("Year level must be less than 50 characters")
+    .escape(),
 
   // Additional security: limit request size
   body().custom((value, { req }) => {
@@ -109,6 +199,18 @@ const registerValidation = [
       "contact_number",
       "password",
       "confirm_password",
+      // Optional personal info fields
+      "date_of_birth",
+      "gender",
+      "address_line1",
+      "address_line2",
+      "city",
+      "province",
+      "postal_code",
+      "emergency_contact_name",
+      "emergency_contact_number",
+      "department",
+      "year_level",
     ];
     const receivedFields = Object.keys(req.body);
     const unexpectedFields = receivedFields.filter(
@@ -129,8 +231,8 @@ const loginValidation = [
     .trim()
     .notEmpty()
     .withMessage("School ID is required")
-    .matches(/^(\d{2}-\d{4}|ADMIN-\d{4})$/)
-    .withMessage("Invalid School ID format (use YY-XXXX or ADMIN-YYYY)"),
+    .matches(/^(\d{2}-\d{5}|ADMIN-\d{4})$/)
+    .withMessage("Invalid School ID format (use XX-XXXXX or ADMIN-YYYY)"),
 
   body("password")
     .notEmpty()

@@ -12,7 +12,24 @@
 
 const { validationResult } = require("express-validator");
 const db = require("../config/database");
-const { processImage, deleteFile } = require("../utils/fileUpload");
+const {
+  processImage,
+  deleteFile,
+  moveToItemDirectory,
+  deleteItemDirectory,
+} = require("../utils/fileUpload");
+
+/**
+ * Sanitize string for SQL LIKE queries
+ * Escapes special characters: %, _, and \
+ */
+const sanitizeForLike = (str) => {
+  if (!str) return str;
+  return str
+    .replace(/\\/g, "\\\\") // Escape backslashes first
+    .replace(/%/g, "\\%") // Escape percent
+    .replace(/_/g, "\\_"); // Escape underscore
+};
 
 /**
  * @desc    Create new found item report
@@ -22,6 +39,7 @@ const { processImage, deleteFile } = require("../utils/fileUpload");
 exports.createFoundItem = async (req, res) => {
   let connection;
   const uploadedFiles = [];
+  let foundItemId = null;
 
   try {
     // Validate input
@@ -80,7 +98,7 @@ exports.createFoundItem = async (req, res) => {
         ]
       );
 
-      const foundItemId = result[0].insertId;
+      foundItemId = result[0].insertId;
 
       // Process and save images if uploaded
       if (req.files && req.files.length > 0) {
@@ -92,6 +110,13 @@ exports.createFoundItem = async (req, res) => {
           // Process image (resize, optimize)
           const imageData = await processImage(file.path);
 
+          // Move file to item-specific directory
+          const newPath = await moveToItemDirectory(
+            file.path,
+            "found",
+            foundItemId
+          );
+
           // Save to database using transactional connection
           await connection.execute(
             `INSERT INTO item_images (
@@ -101,7 +126,7 @@ exports.createFoundItem = async (req, res) => {
             [
               foundItemId,
               file.filename,
-              file.path,
+              newPath,
               imageData.size,
               file.mimetype,
               imageData.width,
@@ -111,16 +136,6 @@ exports.createFoundItem = async (req, res) => {
               req.ip || req.connection?.remoteAddress || "0.0.0.0",
             ]
           );
-
-          // Delete original unprocessed file if processImage wrote a new file
-          if (
-            imageData &&
-            imageData.processedPath &&
-            imageData.processedPath !== file.path
-          ) {
-            // If processImage returns different path (not in current impl), remove original
-            deleteFile(file.path);
-          }
         }
       }
 
@@ -169,6 +184,10 @@ exports.createFoundItem = async (req, res) => {
       if (connection) await db.rollback(connection);
       // Clean up uploaded files on error
       uploadedFiles.forEach((filePath) => deleteFile(filePath));
+      // Also delete the item directory if it was created
+      if (foundItemId) {
+        deleteItemDirectory("found", foundItemId);
+      }
       throw error;
     }
   } catch (error) {
@@ -231,7 +250,8 @@ exports.getFoundItems = async (req, res) => {
       whereConditions.push(
         "(fi.title LIKE ? OR fi.description LIKE ? OR fi.unique_identifiers LIKE ?)"
       );
-      const searchTerm = `%${search}%`;
+      const sanitizedSearch = sanitizeForLike(search);
+      const searchTerm = `%${sanitizedSearch}%`;
       params.push(searchTerm, searchTerm, searchTerm);
     }
 

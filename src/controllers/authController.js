@@ -16,6 +16,7 @@ const { validationResult } = require("express-validator");
 const db = require("../config/database");
 const { generateTokenPair } = require("../utils/jwt");
 const logger = require("../utils/logger");
+const { formatValidationErrors } = require("../utils/validationErrorFormatter");
 
 /**
  * User Registration
@@ -35,11 +36,7 @@ const register = async (req, res) => {
     // 1. Validate input
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: errors.array(),
-      });
+      return res.status(400).json(formatValidationErrors(errors.array()));
     }
 
     const {
@@ -49,6 +46,18 @@ const register = async (req, res) => {
       email,
       contact_number,
       password,
+      // Optional personal information
+      date_of_birth,
+      gender,
+      address_line1,
+      address_line2,
+      city,
+      province,
+      postal_code,
+      emergency_contact_name,
+      emergency_contact_number,
+      department,
+      year_level,
     } = req.body;
 
     // 2. Check if school ID already exists
@@ -86,29 +95,168 @@ const register = async (req, res) => {
     // 5. Begin transaction
     connection = await db.beginTransaction();
 
-    // 6. Insert new user
+    // 6. Validate all required fields are present
+    if (!school_id || !first_name || !last_name || !email || !contact_number) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "All fields are required: school_id, first_name, last_name, email, contact_number, password",
+      });
+    }
+
+    // 7. Validate required personal info fields
+    if (!date_of_birth) {
+      return res.status(400).json({
+        success: false,
+        message: "Date of birth is required",
+      });
+    }
+
+    if (!gender) {
+      return res.status(400).json({
+        success: false,
+        message: "Gender is required",
+      });
+    }
+
+    if (!address_line1) {
+      return res.status(400).json({
+        success: false,
+        message: "Address is required",
+      });
+    }
+
+    if (!city) {
+      return res.status(400).json({
+        success: false,
+        message: "City is required",
+      });
+    }
+
+    if (!province) {
+      return res.status(400).json({
+        success: false,
+        message: "Province is required",
+      });
+    }
+
+    if (!postal_code) {
+      return res.status(400).json({
+        success: false,
+        message: "Postal code is required",
+      });
+    }
+
+    if (!emergency_contact_name) {
+      return res.status(400).json({
+        success: false,
+        message: "Emergency contact name is required",
+      });
+    }
+
+    if (!emergency_contact_number) {
+      return res.status(400).json({
+        success: false,
+        message: "Emergency contact number is required",
+      });
+    }
+
+    if (!department) {
+      return res.status(400).json({
+        success: false,
+        message: "Department is required",
+      });
+    }
+
+    if (!year_level) {
+      return res.status(400).json({
+        success: false,
+        message: "Year level is required",
+      });
+    }
+
+    // 8. Validate field formats
+    // Date of birth validation
+    let validatedDob = null;
+    if (date_of_birth) {
+      const dob = new Date(date_of_birth);
+      if (isNaN(dob.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid date of birth format. Use YYYY-MM-DD",
+        });
+      }
+      const age = Math.floor(
+        (Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+      );
+      if (age < 13 || age > 120) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid date of birth",
+        });
+      }
+      validatedDob = date_of_birth;
+    }
+
+    // Gender validation
+    let validatedGender = null;
+    if (gender) {
+      const validGenders = ["male", "female", "other", "prefer_not_to_say"];
+      if (!validGenders.includes(gender)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid gender value. Use: male, female, other, or prefer_not_to_say",
+        });
+      }
+      validatedGender = gender;
+    }
+
+    // Emergency contact number validation
+    if (
+      emergency_contact_number &&
+      !/^[0-9+\-()\s]{7,20}$/.test(emergency_contact_number)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid emergency contact number format",
+      });
+    }
+
+    // 8. Insert new user with all fields
     const insertParams = [
       school_id,
       first_name,
       last_name,
-      email === undefined || email === "" ? null : email,
-      contact_number === undefined || contact_number === ""
-        ? null
-        : contact_number,
+      email,
+      contact_number,
       password_hash,
+      validatedDob,
+      validatedGender,
+      address_line1,
+      address_line2 || null,
+      city,
+      province,
+      postal_code,
+      emergency_contact_name,
+      emergency_contact_number,
+      department,
+      year_level,
     ];
 
     const result = await connection.execute(
       `INSERT INTO users (
         school_id, first_name, last_name, email, contact_number, 
-        password_hash, role, status, password_changed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'user', 'pending', NOW())`,
+        password_hash, date_of_birth, gender, address_line1, address_line2,
+        city, province, postal_code, emergency_contact_name, emergency_contact_number,
+        department, year_level, role, status, password_changed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 'pending', NOW())`,
       insertParams
     );
 
     const userId = result[0].insertId;
 
-    // 7. Log activity - ensure all parameters are defined
+    // 9. Log activity - ensure all parameters are defined
     const activityParams = [
       userId,
       req.ip || req.connection?.remoteAddress || "0.0.0.0",
@@ -125,12 +273,12 @@ const register = async (req, res) => {
       activityParams
     );
 
-    // 8. Commit transaction
+    // 10. Commit transaction
     await db.commit(connection);
 
     logger.info(`New user registered: ${school_id}`);
 
-    // 9. Send success response (NO PASSWORD IN RESPONSE!)
+    // 11. Send success response (NO PASSWORD IN RESPONSE!)
     res.status(201).json({
       success: true,
       message:
@@ -140,7 +288,15 @@ const register = async (req, res) => {
         school_id,
         first_name,
         last_name,
-        email: email || null,
+        email,
+        contact_number,
+        date_of_birth: validatedDob,
+        gender: validatedGender,
+        address_line1: address_line1 || null,
+        city: city || null,
+        province: province || null,
+        department: department || null,
+        year_level: year_level || null,
         status: "pending",
       },
     });
@@ -176,11 +332,7 @@ const login = async (req, res) => {
     // 1. Validate input
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: errors.array(),
-      });
+      return res.status(400).json(formatValidationErrors(errors.array()));
     }
 
     const { school_id, password } = req.body;
@@ -391,8 +543,10 @@ const getProfile = async (req, res) => {
   try {
     // User is already attached by authenticate middleware
     const users = await db.query(
-      `SELECT id, school_id, email, first_name, last_name, contact_number,
-              role, status, email_verified, two_factor_enabled, created_at
+      `SELECT id, school_id, first_name, last_name, email, contact_number,
+              date_of_birth, gender, address_line1, address_line2,
+              city, province, postal_code, emergency_contact_name, emergency_contact_number,
+              department, year_level, role, status, email_verified, two_factor_enabled, created_at
        FROM users 
        WHERE id = ? AND deleted_at IS NULL`,
       [req.user.id]
@@ -415,6 +569,235 @@ const getProfile = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to retrieve profile",
+    });
+  }
+};
+
+/**
+ * Update User Profile
+ * PUT /api/auth/profile
+ * Requires authentication
+ *
+ * Note: school_id and email CANNOT be changed (bound to Firebase)
+ */
+const updateProfile = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json(formatValidationErrors(errors.array()));
+    }
+
+    const userId = req.user.id;
+
+    const {
+      first_name,
+      last_name,
+      contact_number,
+      date_of_birth,
+      gender,
+      address_line1,
+      address_line2,
+      city,
+      province,
+      postal_code,
+      emergency_contact_name,
+      emergency_contact_number,
+      department,
+      year_level,
+    } = req.body;
+
+    // Build dynamic update query (only update provided fields)
+    const updates = [];
+    const params = [];
+
+    if (first_name !== undefined) {
+      // Validate name format
+      const nameRegex = /^[a-zA-Z\s'-]+$/;
+      if (
+        !nameRegex.test(first_name) ||
+        first_name.length < 2 ||
+        first_name.length > 100
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "First name must be 2-100 characters and contain only letters, spaces, hyphens, and apostrophes",
+        });
+      }
+      updates.push("first_name = ?");
+      params.push(first_name.trim());
+    }
+
+    if (last_name !== undefined) {
+      const nameRegex = /^[a-zA-Z\s'-]+$/;
+      if (
+        !nameRegex.test(last_name) ||
+        last_name.length < 2 ||
+        last_name.length > 100
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Last name must be 2-100 characters and contain only letters, spaces, hyphens, and apostrophes",
+        });
+      }
+      updates.push("last_name = ?");
+      params.push(last_name.trim());
+    }
+
+    if (contact_number !== undefined) {
+      // Validate PH mobile format
+      const phMobileRegex = /^(09|\+639)[0-9]{9}$/;
+      if (!phMobileRegex.test(contact_number.trim())) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Contact number must be a valid Philippine mobile number (09XXXXXXXXX or +639XXXXXXXXX)",
+        });
+      }
+      updates.push("contact_number = ?");
+      params.push(contact_number.trim());
+    }
+
+    if (date_of_birth !== undefined) {
+      const dob = new Date(date_of_birth);
+      if (isNaN(dob.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid date of birth format. Use YYYY-MM-DD",
+        });
+      }
+      const age = Math.floor(
+        (Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+      );
+      if (age < 13 || age > 120) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid date of birth",
+        });
+      }
+      updates.push("date_of_birth = ?");
+      params.push(date_of_birth);
+    }
+
+    if (gender !== undefined) {
+      const validGenders = ["male", "female", "other", "prefer_not_to_say"];
+      if (!validGenders.includes(gender)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid gender value. Use: male, female, other, or prefer_not_to_say",
+        });
+      }
+      updates.push("gender = ?");
+      params.push(gender);
+    }
+
+    if (address_line1 !== undefined) {
+      updates.push("address_line1 = ?");
+      params.push(address_line1.trim());
+    }
+
+    if (address_line2 !== undefined) {
+      updates.push("address_line2 = ?");
+      params.push(address_line2 ? address_line2.trim() : null);
+    }
+
+    if (city !== undefined) {
+      updates.push("city = ?");
+      params.push(city.trim());
+    }
+
+    if (province !== undefined) {
+      updates.push("province = ?");
+      params.push(province.trim());
+    }
+
+    if (postal_code !== undefined) {
+      updates.push("postal_code = ?");
+      params.push(postal_code.trim());
+    }
+
+    if (emergency_contact_name !== undefined) {
+      updates.push("emergency_contact_name = ?");
+      params.push(emergency_contact_name.trim());
+    }
+
+    if (emergency_contact_number !== undefined) {
+      if (!/^[0-9+\-()\s]{7,20}$/.test(emergency_contact_number)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid emergency contact number format",
+        });
+      }
+      updates.push("emergency_contact_number = ?");
+      params.push(emergency_contact_number.trim());
+    }
+
+    if (department !== undefined) {
+      updates.push("department = ?");
+      params.push(department.trim());
+    }
+
+    if (year_level !== undefined) {
+      updates.push("year_level = ?");
+      params.push(year_level.trim());
+    }
+
+    // Check if there's anything to update
+    if (updates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields provided for update",
+      });
+    }
+
+    // Add updated_at
+    updates.push("updated_at = NOW()");
+    params.push(userId);
+
+    // Execute update
+    await db.query(
+      `UPDATE users SET ${updates.join(", ")} WHERE id = ?`,
+      params
+    );
+
+    // Log activity
+    await db.query(
+      `INSERT INTO activity_logs (
+        user_id, ip_address, user_agent, action, description, status
+      ) VALUES (?, ?, ?, 'update_profile', 'User updated their profile', 'success')`,
+      [
+        userId,
+        req.ip || req.connection?.remoteAddress || "0.0.0.0",
+        req.headers["user-agent"] || "unknown",
+      ]
+    );
+
+    // Fetch updated profile
+    const users = await db.query(
+      `SELECT id, school_id, first_name, last_name, email, contact_number,
+              date_of_birth, gender, address_line1, address_line2,
+              city, province, postal_code, emergency_contact_name, emergency_contact_number,
+              department, year_level, role, status, email_verified, two_factor_enabled, created_at
+       FROM users 
+       WHERE id = ? AND deleted_at IS NULL`,
+      [userId]
+    );
+
+    logger.info(`User profile updated: ${req.user.school_id}`);
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+      data: users[0],
+    });
+  } catch (error) {
+    logger.error("Update profile error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update profile",
     });
   }
 };
@@ -462,9 +845,431 @@ const logout = async (req, res) => {
   }
 };
 
+/**
+ * Manage User Status (Admin Only)
+ * POST /api/auth/users/:userId/manage
+ *
+ * Unified endpoint for user management actions:
+ * - approve: pending → active
+ * - decline: pending → deleted (soft delete)
+ * - suspend: active → suspended (with optional duration)
+ * - unsuspend: suspended → active
+ *
+ * Body: {
+ *   action: 'approve' | 'decline' | 'suspend' | 'unsuspend',
+ *   reason?: string (for decline/suspend),
+ *   duration_days?: number (for suspend)
+ * }
+ */
+const manage_user = async (req, res) => {
+  let connection;
+
+  try {
+    const { userId } = req.params;
+    const { action, reason, duration_days } = req.body;
+    const adminId = req.user.id;
+
+    // Validate action
+    const validActions = ["approve", "decline", "suspend", "unsuspend"];
+    if (!action || !validActions.includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid action. Must be one of: ${validActions.join(", ")}`,
+      });
+    }
+
+    // Prevent self-suspension
+    if (action === "suspend" && parseInt(userId) === adminId) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot suspend your own account",
+      });
+    }
+
+    // Get user details
+    const users = await db.query(
+      `SELECT id, school_id, first_name, last_name, email, role, status 
+       FROM users 
+       WHERE id = ? AND deleted_at IS NULL`,
+      [userId]
+    );
+
+    if (!users || users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const user = users[0];
+
+    // Action-specific validations
+    switch (action) {
+      case "approve":
+        if (user.status === "active") {
+          return res.status(400).json({
+            success: false,
+            message: "User is already active",
+          });
+        }
+        if (user.status === "suspended") {
+          return res.status(400).json({
+            success: false,
+            message: "Cannot approve suspended user. Use unsuspend instead.",
+          });
+        }
+        if (user.status !== "pending") {
+          return res.status(400).json({
+            success: false,
+            message: "Can only approve pending users",
+          });
+        }
+        break;
+
+      case "decline":
+        if (user.status !== "pending") {
+          return res.status(400).json({
+            success: false,
+            message: "Can only decline pending users",
+          });
+        }
+        break;
+
+      case "suspend":
+        if (user.role === "admin") {
+          return res.status(403).json({
+            success: false,
+            message: "Cannot suspend admin users",
+          });
+        }
+        if (user.status === "suspended") {
+          return res.status(400).json({
+            success: false,
+            message: "User is already suspended",
+          });
+        }
+        if (user.status === "pending") {
+          return res.status(400).json({
+            success: false,
+            message: "Cannot suspend pending users. Use decline instead.",
+          });
+        }
+        break;
+
+      case "unsuspend":
+        if (user.status !== "suspended") {
+          return res.status(400).json({
+            success: false,
+            message: "User is not suspended",
+          });
+        }
+        break;
+    }
+
+    // Begin transaction
+    connection = await db.beginTransaction();
+
+    let updateQuery;
+    let updateParams;
+    let logDescription;
+    let newStatus;
+
+    // Execute action-specific logic
+    switch (action) {
+      case "approve":
+        updateQuery = `UPDATE users SET status = 'active', updated_at = NOW() WHERE id = ?`;
+        updateParams = [userId];
+        logDescription = `Admin approved user: ${user.school_id}`;
+        newStatus = "active";
+        break;
+
+      case "decline":
+        updateQuery = `UPDATE users SET deleted_at = NOW(), status = 'deleted', updated_at = NOW() WHERE id = ?`;
+        updateParams = [userId];
+        logDescription = reason
+          ? `Admin declined user: ${user.school_id}. Reason: ${reason}`
+          : `Admin declined user: ${user.school_id}`;
+        newStatus = "deleted";
+        break;
+
+      case "suspend":
+        const lockedUntil =
+          duration_days && parseInt(duration_days) > 0
+            ? `DATE_ADD(NOW(), INTERVAL ${parseInt(duration_days)} DAY)`
+            : null;
+
+        updateQuery = lockedUntil
+          ? `UPDATE users SET status = 'suspended', locked_until = ${lockedUntil}, refresh_token = NULL, refresh_token_expires = NULL, updated_at = NOW() WHERE id = ?`
+          : `UPDATE users SET status = 'suspended', refresh_token = NULL, refresh_token_expires = NULL, updated_at = NOW() WHERE id = ?`;
+
+        updateParams = [userId];
+        logDescription = reason
+          ? `Admin suspended user: ${user.school_id}. Reason: ${reason}${
+              duration_days ? `. Duration: ${duration_days} days` : ""
+            }`
+          : `Admin suspended user: ${user.school_id}${
+              duration_days ? ` for ${duration_days} days` : ""
+            }`;
+        newStatus = "suspended";
+        break;
+
+      case "unsuspend":
+        updateQuery = `UPDATE users SET status = 'active', locked_until = NULL, login_attempts = 0, updated_at = NOW() WHERE id = ?`;
+        updateParams = [userId];
+        logDescription = `Admin unsuspended user: ${user.school_id}`;
+        newStatus = "active";
+        break;
+    }
+
+    // Execute update
+    await connection.execute(updateQuery, updateParams);
+
+    // Log activity
+    await connection.execute(
+      `INSERT INTO activity_logs (
+        user_id, ip_address, user_agent, action, resource_type, 
+        resource_id, description, status
+      ) VALUES (?, ?, ?, ?, 'user', ?, ?, 'success')`,
+      [
+        adminId,
+        req.ip || "0.0.0.0",
+        req.headers["user-agent"] || "unknown",
+        `${action}_user`,
+        userId,
+        logDescription,
+      ]
+    );
+
+    // Commit transaction
+    await db.commit(connection);
+
+    // Log appropriate message
+    const logLevel = action === "suspend" ? "warn" : "info";
+    logger[logLevel](`User ${action}ed by admin: ${user.school_id}`);
+
+    // Build response data
+    const responseData = {
+      userId: user.id,
+      school_id: user.school_id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      status: newStatus,
+    };
+
+    if (action === "decline" || action === "suspend") {
+      responseData.reason = reason || null;
+    }
+
+    if (action === "suspend" && duration_days) {
+      responseData.duration_days = duration_days;
+    }
+
+    res.json({
+      success: true,
+      message: `User ${action}ed successfully`,
+      data: responseData,
+    });
+  } catch (error) {
+    if (connection) {
+      await db.rollback(connection);
+    }
+
+    logger.error(`Manage user error (${req.body.action}):`, error);
+
+    res.status(500).json({
+      success: false,
+      message: `Failed to ${req.body.action || "manage"} user`,
+    });
+  }
+};
+
+/**
+ * Request Password Reset
+ * POST /api/auth/forgot-password
+ * Public access
+ *
+ * Generates reset token and sends email
+ */
+const forgotPassword = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json(formatValidationErrors(errors.array()));
+    }
+
+    const { email } = req.body;
+
+    // Find user by email
+    const userQuery = `
+      SELECT id, school_id, first_name, last_name, email, status
+      FROM users
+      WHERE email = ? AND deleted_at IS NULL
+    `;
+    const users = await db.query(userQuery, [email]);
+
+    // Always return success even if email doesn't exist (security)
+    if (users.length === 0) {
+      logger.info(`Password reset requested for non-existent email: ${email}`);
+      return res.json({
+        success: true,
+        message:
+          "If an account with that email exists, a password reset link has been sent.",
+      });
+    }
+
+    const user = users[0];
+
+    // Check if account is active
+    if (user.status !== "active") {
+      logger.info(`Password reset requested for inactive account: ${email}`);
+      return res.json({
+        success: true,
+        message:
+          "If an account with that email exists, a password reset link has been sent.",
+      });
+    }
+
+    // Generate reset token
+    const passwordResetService = require("../services/passwordResetService");
+    const { token } = await passwordResetService.createResetToken(user.id);
+
+    // Send email
+    const emailService = require("../services/emailService");
+    await emailService.sendPasswordResetEmail(user, token);
+
+    logger.info(`Password reset token generated for user: ${user.school_id}`);
+
+    res.json({
+      success: true,
+      message:
+        "If an account with that email exists, a password reset link has been sent.",
+    });
+  } catch (error) {
+    logger.error("Forgot password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to process password reset request",
+    });
+  }
+};
+
+/**
+ * Verify Reset Token
+ * GET /api/auth/reset-password/:token
+ * Public access
+ *
+ * Checks if reset token is valid
+ */
+const verifyResetToken = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const passwordResetService = require("../services/passwordResetService");
+    const tokenData = await passwordResetService.verifyResetToken(token);
+
+    if (!tokenData) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset token",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Token is valid",
+      data: {
+        email: tokenData.email,
+        school_id: tokenData.school_id,
+      },
+    });
+  } catch (error) {
+    logger.error("Verify reset token error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to verify reset token",
+    });
+  }
+};
+
+/**
+ * Reset Password
+ * POST /api/auth/reset-password
+ * Public access
+ *
+ * Resets password using valid token
+ */
+const resetPassword = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json(formatValidationErrors(errors.array()));
+    }
+
+    const { token, new_password } = req.body;
+
+    // Verify token
+    const passwordResetService = require("../services/passwordResetService");
+    const tokenData = await passwordResetService.verifyResetToken(token);
+
+    if (!tokenData) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset token",
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(
+      new_password,
+      parseInt(process.env.BCRYPT_ROUNDS) || 12
+    );
+
+    // Update password and reset login attempts
+    const updateQuery = `
+      UPDATE users
+      SET password_hash = ?,
+          password_changed_at = NOW(),
+          login_attempts = 0,
+          locked_until = NULL,
+          updated_at = NOW()
+      WHERE id = ?
+    `;
+    await db.query(updateQuery, [hashedPassword, tokenData.user_id]);
+
+    // Mark token as used
+    await passwordResetService.markTokenAsUsed(token);
+
+    // Send confirmation email
+    const emailService = require("../services/emailService");
+    await emailService.sendPasswordResetConfirmation({
+      email: tokenData.email,
+      first_name: tokenData.first_name,
+    });
+
+    logger.info(`Password reset successful for user: ${tokenData.school_id}`);
+
+    res.json({
+      success: true,
+      message:
+        "Password reset successful. You can now login with your new password.",
+    });
+  } catch (error) {
+    logger.error("Reset password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to reset password",
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
   getProfile,
+  updateProfile,
   logout,
+  manage_user,
+  forgotPassword,
+  verifyResetToken,
+  resetPassword,
 };
